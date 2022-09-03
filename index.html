@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<title>Babylon.js sample code</title>
+	<style>
+		html, body {
+			overflow: hidden;
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			padding: 0;
+			position: relative;
+		}
+
+		#renderCanvas {
+			width: 100%;
+			height: 100%;
+			touch-action: none;
+		}
+
+		select {
+			position: absolute;
+			left: 10px;
+			top: 10px;
+			width: 150px;
+			height: 30px;
+			line-height: 30px;
+			outline: none;
+			border-color: skyblue;
+			border-radius: 4px;
+			padding: 0 5px;
+		}
+
+		#display {
+			width: 30vw;
+			height: 50vh;
+			overflow-y: scroll;
+			position: fixed;
+			right: 10px;
+			top: 10px;
+			background-color: black;
+			color: rgb(122, 248, 79);
+			font-size: 13px;
+			padding-top: 5px;
+			padding: 5px 10px 0 10px;
+			box-sizing: border-box;
+		}
+		#display .message {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			margin-bottom: 5px;
+		}
+		#display .label {
+			flex: 1;
+		}
+		#display .info {
+			flex: 1;
+			color: red;
+		}
+		#display .info span {
+			display: inline-block;
+			padding: 1px 5px;
+			color: white;
+		}
+
+		#operation {
+			position: fixed;
+			top: 10px;
+			left: 50%;
+			transform: translateX(-50%);
+			user-select: none;
+		}
+		#operation div {
+			width: 100px;
+			height: 30px;
+			line-height: 30px;
+			display: inline-block;
+			border: 1px solid skyblue;
+			text-align: center;
+			margin: 0 10px 10px 10px;
+			border-radius: 4px;
+			color: white;
+			cursor: pointer;
+		}
+		#operation div:hover {
+			opacity: 0.8;
+		}
+		#operation .random, #operation .resolve {
+			background-color: #E6A23C;
+		}
+		#operation .prev, #operation .next {
+			background-color: #409EFF;
+		}
+		#operation .import, #operation .export {
+			background-color: #67C23A;
+		}
+
+		#file {
+			display: none;
+		}
+	</style>
+</head>
+<body>
+
+<canvas id="renderCanvas"></canvas>
+<select></select>
+<div id="display"></div>
+<div id="operation">
+	<div class="import">导入</div>
+	<div class="export">导出</div>
+	<br>
+	<div class="random">打乱</div>
+	<div class="resolve">复原</div>
+	<br>
+	<div class="prev">上一步</div>
+	<div class="next">下一步</div>	
+</div>
+
+<input type="file" accept="application/json" id="file">
+
+<!-- Babylon.js -->
+<script src="lib/pep.min.js"></script>
+<script src="lib/dat.gui.min.js"></script>
+<script src="lib/ammo.js"></script>
+<script src="lib/cannon.js"></script>
+<script src="lib/Oimo.js"></script>
+<script src="lib/gltf_validator.js"></script>
+<script src="lib/earcut.min.js"></script>
+<script src="lib/babylon.js"></script>
+<script src="lib/babylon.inspector.bundle.js"></script>
+<script src="lib/babylonjs.materials.min.js"></script>
+<script src="lib/babylonjs.proceduralTextures.min.js"></script>
+<script src="lib/babylonjs.postProcess.min.js"></script>
+<script src="lib/babylonjs.loaders.js"></script>
+<script src="lib/babylonjs.serializers.min.js"></script>
+<script src="lib/babylon.gui.min.js"></script>
+
+<script src="static/FileSaver.2.0.5.min.js"></script>
+<script src="static/utils.js"></script>
+
+<script src="js/utils.js"></script>
+<script src="js/axes.js"></script>
+<script src="js/rubik.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/light.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/play.js"></script>
+<script src="js/resolve.js"></script>
+<script src="js/log.js"></script>
+<script>
+
+window.canvas = document.getElementById('renderCanvas');
+
+window.game = {
+	engine: null,
+	scene:  null,
+	camera: null,
+
+	cubes: [],
+	levels: 3,
+	duration: 500,
+	timer: 0,
+	minLevels: 2,
+	maxLevels: 100,
+	size: 50
+}
+
+function init () {
+	window.game.engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+	window.game.scene = createScene(canvas);
+	window.game.camera = createCamera(window.game.scene);
+	window.game.duration = Math.min(600, Math.floor(window.game.levels / 10) * 100 + 460);
+
+	const { engine, scene } = window.game;
+	const { ligth1, light2 } = createLights(scene);
+	engine.runRenderLoop(() => {
+		if (scene) {
+			scene.render();
+		}
+	});
+
+	axes.showAxes(scene, 2000);
+
+	// Resize
+	window.addEventListener('resize', () => {
+		window.game.engine.resize();
+	});
+
+	const select = document.querySelector('select');
+	for (let i = window.game.minLevels; i <= window.game.maxLevels; i++) {
+		const option = document.createElement('option');
+		option.value = i;
+		if (i === window.game.levels) {
+			option.selected = 'selected';
+		}
+		option.textContent = i;
+		select.appendChild(option);
+	}
+
+	document.querySelector('select').addEventListener('change', function (e) {
+		const levels = e.target.value * 1;
+		window.game.levels = levels;
+		window.game.duration = Math.max(600, Math.floor(window.game.levels / 10) * 100 + 250);
+		const { scene } = window.game;
+		window.game.cubes.forEach(cube => {
+			scene.removeMesh(cube.box);
+		});
+		window.game.cubes = window.rubik.createCubes(scene, window.game.levels);
+		animate();
+	});
+
+	document.querySelector('#operation .random').addEventListener('click', function (e) {
+		if (utils.isRotating()) {
+			console.log('魔方转动中，请稍后...');
+			return ;
+		}
+		console.log('开始打乱魔方');
+		window.game.resolver.randomIt();
+	});
+
+	document.querySelector('#operation .resolve').addEventListener('click', function (e) {
+		if (utils.isRotating()) {
+			console.log('魔方转动中，请稍后...');
+			return ;
+		}
+		console.log('准备复原魔方');
+		window.game.resolver.resolve();
+	});
+
+	document.querySelector('#operation .prev').addEventListener('click', async function (e) {
+		if (await window.game.resolver.prev()) {
+			console.log('返回上一步');
+		}
+	});
+
+	document.querySelector('#operation .next').addEventListener('click', async function (e) {
+		if (await window.game.resolver.next()) {
+			console.log('回到下一步');
+		}
+	});
+
+	document.querySelector('#operation .import').addEventListener('click', async function (e) {
+		const fileInput = document.querySelector('#file');
+		function importRubik () {
+			const file = fileInput.files[0];
+			const reader = new FileReader();
+			reader.onload = function () {
+				window.sessionStorage.setItem('rubik', reader.result);
+				window.sessionStorage.setItem('importRubik', 'true');
+				window.location.reload();
+			};
+			reader.readAsText(file);
+			fileInput.value = null;
+			fileInput.onchange = null;
+		}
+		fileInput.onchange = importRubik;
+		fileInput.click();
+	});
+
+	document.querySelector('#operation .export').addEventListener('click', async function (e) {
+		const status = utils.getRubik(window.game.resolver);
+		window.saveJsonFile(status);
+		console.log('已导出魔方');
+	});
+}
+
+window.onload = async function () {
+	init();
+	const { scene } = window.game;
+
+	const importRubik = window.sessionStorage.getItem('importRubik') === 'true';
+	const status = JSON.parse(window.sessionStorage.getItem('rubik') || null);
+	window.sessionStorage.removeItem('importRubik');
+
+	window.game.cubes = window.rubik.createCubes(scene, window.game.levels, importRubik, status);
+
+	if (importRubik) {
+		console.log('已导入魔方');
+	}
+
+	window.game.resolver = new Resolver(window.game.cubes);
+	utils.setDefaultDuration(50);
+	utils.setDefaultFrames(3);
+	// await window.game.resolver.randomIt();
+	// await utils.sleep(1000);
+	// await window.game.resolver.resolve();
+	// animate();
+	// enablePlayCube(scene, canvas);
+}
+
+function animate () {
+	const steps = makeSteps();
+	window.game.timer += 1;
+	const animateTimer = window.game.timer;
+
+	async function rotate () {
+		if (animateTimer !== window.game.timer) {
+			return ;
+		}
+		const step = steps.pop();
+		if (!step) {
+			return ;
+		}
+		const { direction, floor, degree, duration, frames } = step;
+		await utils.rotateLayer(window.game.cubes, direction, floor, degree, duration, frames);
+		rotate();
+	}
+	rotate();
+}
+
+function makeSteps () {
+	const directions = ['x', 'y', 'z'];
+	const isEven = window.game.levels % 2 === 0;
+	const max = Math.floor(window.game.levels / 2);
+	const min = -max;
+	const floors = [];
+	for (let i = min; i <= max; i++) {
+		if (isEven && i === 0) {
+			continue;
+		}
+		floors.push(i);
+	}
+	const degrees = [90, -90];
+	const steps = Array.from({ length: 3600 }).map(() => {
+		return {
+			direction: utils.choice(directions),
+			floor: utils.choice(floors),
+			degree: utils.choice(degrees),
+			duration: window.game.duration,
+			frames: 30
+		};
+	});
+
+	return steps;
+}
+
+</script>
+</body>
+</html>
